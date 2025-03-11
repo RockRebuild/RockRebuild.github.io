@@ -77,6 +77,7 @@ category_map:
 tag_map:
 	JAVA: java
 	数据库: database
+  redis: redis
   Linux: linux
 # Metadata elements
 ## https://developer.mozilla.org/en-US/docs/Web/HTML/Element/meta

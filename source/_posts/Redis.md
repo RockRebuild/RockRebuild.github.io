@@ -1,7 +1,7 @@
 ---
-title: SpringBoot
+title: redis
 date: 2022-02-17 21:09:31
-tags: JAVA
+tags: redis
 categories: 编程
 ---
 # Redis

@@ -29,6 +29,25 @@
     
     
     <entry>
+      <title>redis数据结构</title>
+      <link href="/2023/10/11/redis-shu-ju-jie-gou/"/>
+      <url>/2023/10/11/redis-shu-ju-jie-gou/</url>
+      
+        <content type="html"><![CDATA[<h1 id="全局哈希表"><a href="#全局哈希表" class="headerlink" title="全局哈希表"></a>全局哈希表</h1><p>一维数组 + 二维链表<br>hash(key) % 数组长度<br>时间复杂度O(1)<br> <img src="/2023/10/11/redis-shu-ju-jie-gou/image-1.png" class=""></p><h2 id="1-string类型"><a href="#1-string类型" class="headerlink" title="1.string类型"></a>1.string类型</h2><p>应用：计数器/分布式锁/对象缓存</p><h4 id="1-int-存整形"><a href="#1-int-存整形" class="headerlink" title="1.int 存整形"></a>1.int 存整形</h4><h4 id="2-SDS：-字符串是一个字符串值并且长度大于44个字节-简单动态字符串，encoding设置为raw"><a href="#2-SDS：-字符串是一个字符串值并且长度大于44个字节-简单动态字符串，encoding设置为raw" class="headerlink" title="2.SDS： 字符串是一个字符串值并且长度大于44个字节 简单动态字符串，encoding设置为raw"></a>2.SDS： 字符串是一个字符串值并且长度大于44个字节 简单动态字符串，encoding设置为raw</h4><pre class="line-numbers language-none"><code class="language-none">&#x2F;*   * 保存字符串对象的结构   *&#x2F;  struct sdshdr &#123;      int len;  &#x2F;&#x2F; buf 中已占用空间的长度      int free;  &#x2F;&#x2F; buf 中剩余可用空间的长度    char buf[];  &#x2F;&#x2F; 数据空间  &#125;;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre><p>SDS 相比C 字符串的优势：</p><p>SDS保存了字符串的长度，而C字符串不保存长度，需要遍历整个数组（找到’\0’为止）才能取到字符串长度。<br>修改SDS时，检查给定SDS空间是否足够，如果不够会先拓展SDS 的空间，防止缓冲区溢出。C字符串不会检查字符串空间是否足够，调用一些函数时很容易造成缓冲区溢出（比如strcat字符串连接函数）。<br>SDS预分配空间的机制，可以减少为字符串重新分配空间的次数。空间预分配用于优化 SDS 的字符串增长操作<br>惰性空间释放用于优化 SDS 的字符串缩短操作，程序不会立即使用内存重分配来回收缩短后多出来的字节，而是使用 free 属性将这个字节的数量记录起来，并等待将来使用</p><h4 id="3-embstr：字符串长度小于等于44个字节，encoding设置为embstr"><a href="#3-embstr：字符串长度小于等于44个字节，encoding设置为embstr" class="headerlink" title="3.embstr：字符串长度小于等于44个字节，encoding设置为embstr"></a>3.embstr：字符串长度小于等于44个字节，encoding设置为embstr</h4><h2 id="2-Hash类型"><a href="#2-Hash类型" class="headerlink" title="2.Hash类型"></a>2.Hash类型</h2><p>应用：对象信息（电商购物车）(对象各属性存到value又是key-value的形式)/高并发场景下使用Redis生成唯一的id</p><h4 id="1-字典-hashtable"><a href="#1-字典-hashtable" class="headerlink" title="1.字典,hashtable"></a>1.字典,hashtable</h4><pre class="line-numbers language-none"><code class="language-none">typedef struct dictht &#123;   dictEntry **table;&#x2F;&#x2F;哈希表数组      unsigned long size;&#x2F;&#x2F;哈希表大小     unsigned long sizemask;&#x2F;&#x2F;哈希表大小掩码，用于计算索引值   unsigned long used;&#x2F;&#x2F;该哈希表已有节点的数量&#125;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre><p>hashtable中计算出hash值后，还要通过哈希表大小掩码sizemask 属性和哈希值再次得到数组下标。<br>解决哈希冲突：假如hashtable中不同的key通过计算得到同一个index，就会形成单向链表（链地址法又叫拉链法）<br>渐进式rehash</p><h4 id="2-ziplist-压缩列表-（当哈希类型元素个数小于hash-max-ziplist-entries配置，默认512个-，所有值都小于hash-max-ziplist-value配置，默认64字节）"><a href="#2-ziplist-压缩列表-（当哈希类型元素个数小于hash-max-ziplist-entries配置，默认512个-，所有值都小于hash-max-ziplist-value配置，默认64字节）" class="headerlink" title="2.ziplist 压缩列表 （当哈希类型元素个数小于hash-max-ziplist-entries配置，默认512个 ，所有值都小于hash-max-ziplist-value配置，默认64字节）"></a>2.ziplist 压缩列表 （当哈希类型元素个数小于hash-max-ziplist-entries配置，默认512个 ，所有值都小于hash-max-ziplist-value配置，默认64字节）</h4><p>压缩列表（ziplist）是一组连续内存块组成的顺序的数据结构，压缩列表能够节省空间，压缩列表中使用多个节点来存储数据。<br> <img src="/2023/10/11/redis-shu-ju-jie-gou/image-2.png" class=""></p><ul><li>zlbytes：4个字节的大小，记录压缩列表占用内存的字节数。</li><li>zltail：4个字节大小，记录表尾节点距离起始地址的偏移量，用于快速定位到尾节点的地址。</li><li>zllen：2个字节的大小，记录压缩列表中的节点数。</li><li>entry：表示列表中的每一个节点。<br>  每一个entry节点又有三部分组成，包括previous_entry_ength、encoding、content。<ul><li>previous_entry_ength表示前一个节点entry的长度，可用于计算前一个节点的真实地址，因为他们的地址是连续的。</li><li>encoding：这里保存的是content的内容类型和长度。</li><li>content：content保存的是每一个节点的内容。</li></ul></li><li>zlend：表示压缩列表的特殊结束符号’0xFF’。</li></ul><h2 id="3-List类型"><a href="#3-List类型" class="headerlink" title="3.List类型"></a>3.List类型</h2><p>应用：阻塞队列/栈</p><h4 id="1-zipList-（元素个数小于zset-max-ziplist-entries配置，默认128，所有值都小于zset-max-ziplist-value配置，默认64）"><a href="#1-zipList-（元素个数小于zset-max-ziplist-entries配置，默认128，所有值都小于zset-max-ziplist-value配置，默认64）" class="headerlink" title="1.zipList （元素个数小于zset-max-ziplist-entries配置，默认128，所有值都小于zset-max-ziplist-value配置，默认64）"></a>1.zipList （元素个数小于zset-max-ziplist-entries配置，默认128，所有值都小于zset-max-ziplist-value配置，默认64）</h4><p>同上</p><h4 id="2-双向链表"><a href="#2-双向链表" class="headerlink" title="2.双向链表"></a>2.双向链表</h4> <img src="/2023/10/11/redis-shu-ju-jie-gou/image-3.png" class=""><p>Redis中链表的特性：<br>每一个节点都有指向前一个节点和后一个节点的指针。<br>头节点和尾节点的prev和next指针指向为null，所以链表是无环的。<br>链表有自己长度的信息，获取长度的时间复杂度为O(1)。</p><h2 id="4-Set集合"><a href="#4-Set集合" class="headerlink" title="4.Set集合"></a>4.Set集合</h2><p>应用：去重、抽奖、共同好友、二度好友</p><h4 id="1-hashtable"><a href="#1-hashtable" class="headerlink" title="1.hashtable"></a>1.hashtable</h4><p>同上</p><h4 id="2-intset-（Set集合中必须是64位有符号的十进制整型且元素个数不超过set-max-intset-entries配置，默认512）"><a href="#2-intset-（Set集合中必须是64位有符号的十进制整型且元素个数不超过set-max-intset-entries配置，默认512）" class="headerlink" title="2.intset （Set集合中必须是64位有符号的十进制整型且元素个数不超过set-max-intset-entries配置，默认512）"></a>2.intset （Set集合中必须是64位有符号的十进制整型且元素个数不超过set-max-intset-entries配置，默认512）</h4><p>inset也叫做整数集合，用于保存整数值的数据结构类型，它可以保存int16_t、int32_t 或者int64_t 的整数值<br>有三个属性值encoding、length、contents[]，分别表示编码方式、整数集合的长度、以及元素内容，length就是记录contents里面的大小。<br>在整数集合新增元素的时候，若是超出了原集合的长度大小，就会对集合进行升级，具体的升级过程如下：</p><p>首先扩展底层数组的大小，并且数组的类型为新元素的类型。<br>然后将原来的数组中的元素转为新元素的类型，并放到扩展后数组对应的位置。<br>整数集合升级后就不会再降级，编码会一直保持升级后的状态。</p><h2 id="5-zset集合"><a href="#5-zset集合" class="headerlink" title="5.zset集合"></a>5.zset集合</h2><p>应用：排行榜</p><h4 id="1-ziplist（数据少时用）"><a href="#1-ziplist（数据少时用）" class="headerlink" title="1.ziplist（数据少时用）"></a>1.ziplist（数据少时用）</h4><p>ziplist为了节省内存，每个元素占用的空间可以不同，对于大的数据（long long），就多用一些字节来存储，而对于小的数据（short），就少用一些字节来存储。因此查找的时候需要按顺序遍历。ziplist省内存但是查找效率低。</p><h4 id="2-字典-skiplist-（数据多时用）"><a href="#2-字典-skiplist-（数据多时用）" class="headerlink" title="2.字典+skiplist （数据多时用）"></a>2.字典+skiplist （数据多时用）</h4> <img src="/2023/10/11/redis-shu-ju-jie-gou/image-3.png" class=""><p>有序单链表构造的，通过构建索引提高查找效率，空间换时间，查找方式是从最上面的链表层层往下查找，最后在最底层的链表找到对应的节点<br>除了最底层的一层保存的是原始链表的完整数据，上层的节点数会越来越少，并且跨度会越来越大</p><h2 id="6-3种特殊数据结构-：HyperLogLogs（基数统计）、Bitmap-（位存储）、Geospatial-地理位置"><a href="#6-3种特殊数据结构-：HyperLogLogs（基数统计）、Bitmap-（位存储）、Geospatial-地理位置" class="headerlink" title="6.3种特殊数据结构 ：HyperLogLogs（基数统计）、Bitmap （位存储）、Geospatial (地理位置)"></a>6.3种特殊数据结构 ：HyperLogLogs（基数统计）、Bitmap （位存储）、Geospatial (地理位置)</h2>]]></content>
+      
+      
+      
+        <tags>
+            
+            <tag> redis </tag>
+            
+        </tags>
+      
+    </entry>
+    
+    
+    
+    <entry>
       <title>权限模型</title>
       <link href="/2023/01/05/quan-xian-mo-xing/"/>
       <url>/2023/01/05/quan-xian-mo-xing/</url>
@@ -154,7 +173,7 @@
     
     
     <entry>
-      <title>SpringBoot</title>
+      <title>redis</title>
       <link href="/2022/02/17/redis/"/>
       <url>/2022/02/17/redis/</url>
       
@@ -170,7 +189,7 @@
       
         <tags>
             
-            <tag> JAVA </tag>
+            <tag> redis </tag>
             
         </tags>
       
